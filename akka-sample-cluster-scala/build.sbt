@@ -15,6 +15,7 @@ lazy val `akka-sample-cluster-scala` = project
     libraryDependencies ++= Seq(
       "com.typesafe.akka" %% "akka-actor-typed"           % akkaVersion,
       "com.typesafe.akka" %% "akka-cluster-typed"         % akkaVersion,
+      "com.typesafe.akka" %% "akka-cluster-sharding-typed" % akkaVersion,
       "com.typesafe.akka" %% "akka-serialization-jackson" % akkaVersion,
       "ch.qos.logback"    %  "logback-classic"             % "1.2.3",
       "com.typesafe.akka" %% "akka-multi-node-testkit"    % akkaVersion % Test,
