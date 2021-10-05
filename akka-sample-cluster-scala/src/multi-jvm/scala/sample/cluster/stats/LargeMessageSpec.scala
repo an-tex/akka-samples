@@ -30,13 +30,15 @@ object LargeMessageSpecConfig extends MultiNodeConfig {
     akka.actor.provider = cluster
     akka.cluster.roles = [compute]
     akka.remote.artery.large-message-destinations = [
-      ## none of these match the temporary ask actor /temp/singletonProxylargeMessageSingleton-no-dc$a
+      ## none of these match the temporary ask actor /temp/singletonProxylargeMessageResponseSingleton-no-dc$a
       "/temp/singletonProxy*",
       "/temp/singletonProxylargeMessageResponseSingleton*",
       "/temp/singletonProxylargeMessageResponseSingleton**",
       "/temp/singletonProxylargeMessageResponseSingleton-no-dc",
       "/temp/singletonProxylargeMessageResponseSingleton-no-dc$**",
+      "/temp/singletonProxylargeMessageResponseSingleton-no-dc$*",
       "/temp/singletonProxylargeMessageResponseSingleton-no-dc\\$*",
+      "/temp/singletonProxylargeMessageResponseSingleton-no-dc\\$**",
       "/temp/singletonProxylargeMessageResponseSingleton-no-dc**",
       "/temp/singletonProxylargeMessageResponseSingleton-no-dc*",
       "/temp/singletonProxylargeMessageResponseSingleton-no-dc/*",
@@ -45,7 +47,6 @@ object LargeMessageSpecConfig extends MultiNodeConfig {
       #"/temp/*",
       ## or hardcoding like this works :(
       #"/temp/singletonProxylargeMessageResponseSingleton-no-dc$a",
-
     ]
     """).withFallback(ConfigFactory.load()))
 }
