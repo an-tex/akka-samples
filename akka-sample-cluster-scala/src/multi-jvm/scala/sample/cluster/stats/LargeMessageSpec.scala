@@ -1,18 +1,18 @@
 package sample.cluster.stats
 
-import akka.Done
-import akka.actor.testkit.typed.scaladsl.TestProbe
-import akka.actor.typed.ActorRef
+import akka.actor.typed.scaladsl.AskPattern.{Askable, schedulerFromActorSystem}
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.scaladsl.adapter._
+import akka.actor.typed.{ActorRef, Scheduler}
 import akka.cluster.Cluster
 import akka.cluster.ClusterEvent.{CurrentClusterState, MemberUp}
-import akka.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity, EntityTypeKey}
 import akka.cluster.typed.{ClusterSingleton, SingletonActor}
 import akka.remote.testkit.MultiNodeConfig
 import com.typesafe.config.ConfigFactory
+import org.scalatest.concurrent.PatienceConfiguration
+import org.scalatest.concurrent.ScalaFutures.convertScalaFuture
 import sample.cluster.CborSerializable
-import sample.cluster.stats.LargeMessageSpec.{Command, TypeKey, behavior}
+import sample.cluster.stats.LargeMessageSpec.{LargeMessageResponse, behavior, oneMegaByteString}
 
 import scala.concurrent.duration._
 
@@ -29,6 +29,24 @@ object LargeMessageSpecConfig extends MultiNodeConfig {
     """
     akka.actor.provider = cluster
     akka.cluster.roles = [compute]
+    akka.remote.artery.large-message-destinations = [
+      ## none of these match the temporary ask actor /temp/singletonProxylargeMessageSingleton-no-dc$a
+      "/temp/singletonProxy*",
+      "/temp/singletonProxylargeMessageResponseSingleton*",
+      "/temp/singletonProxylargeMessageResponseSingleton**",
+      "/temp/singletonProxylargeMessageResponseSingleton-no-dc",
+      "/temp/singletonProxylargeMessageResponseSingleton-no-dc$**",
+      "/temp/singletonProxylargeMessageResponseSingleton-no-dc\\$*",
+      "/temp/singletonProxylargeMessageResponseSingleton-no-dc**",
+      "/temp/singletonProxylargeMessageResponseSingleton-no-dc*",
+      "/temp/singletonProxylargeMessageResponseSingleton-no-dc/*",
+      "/temp/singletonProxylargeMessageResponseSingleton-no-dc/**",
+      ## only full wildcard
+      #"/temp/*",
+      ## or hardcoding like this works :(
+      #"/temp/singletonProxylargeMessageResponseSingleton-no-dc$a",
+
+    ]
     """).withFallback(ConfigFactory.load()))
 }
 // need one concrete test class per node
@@ -74,48 +92,25 @@ abstract class LargeMessageSpec extends MultiNodeSpec(LargeMessageSpecConfig)
       testConductor.enter("all-up")
     }
 
-    def largeCommand(testProbe: TestProbe[Done]) = {
-      // defaults are:
-      // akka.remote.artery.advanced.maximum-frame-size = 256 KiB
-      // akka.remote.artery.advanced.maximum-large-frame-size = 2 MiB
-      val oneMegaByteString = Seq.fill(1024 * 1024)(".").mkString
-      Command(oneMegaByteString, testProbe.ref)
-    }
-
-    // works here
-    "support large messages using cluster singleton" in {
+    "support large messages in reply to temporary ask actor from cluster singleton" in {
       val clusterSingleton = ClusterSingleton(typedSystem)
 
       runOn(first, second, third) {
-        val testProbe = TestProbe[Done]()
-        clusterSingleton.init(SingletonActor(behavior, "largeMessageSingleton")) ! largeCommand(testProbe)
-        testProbe.expectMessage(Done)
-      }
-    }
-    // but not here
-    "support large messages using cluster sharding" in {
-      val clusterSharding = ClusterSharding(typedSystem)
-
-      runOn(first, second, third) {
-        clusterSharding.init(Entity(TypeKey)(_ => behavior))
-      }
-
-      runOn(first, second, third) {
-        val testProbe = TestProbe[Done]()
-        clusterSharding.entityRefFor(TypeKey, "largeMessageShard") ! largeCommand(testProbe)
-        testProbe.expectMessage(Done)
+        val singleton = clusterSingleton.init(SingletonActor(behavior, "largeMessageResponseSingleton"))
+        val eventualString = singleton.ask(LargeMessageResponse)(3.seconds, implicitly[Scheduler])
+        eventualString.futureValue(PatienceConfiguration.Timeout(4.seconds)).length shouldBe oneMegaByteString.length
       }
     }
   }
 }
 
 object LargeMessageSpec {
-  case class Command(data: String, replyTo: ActorRef[Done]) extends CborSerializable
+  case class LargeMessageResponse(replyTo: ActorRef[String]) extends CborSerializable
 
-  val TypeKey = EntityTypeKey[Command]("largeMessageTypeKey")
+  val oneMegaByteString = Seq.fill(1024 * 1024)(".").mkString
 
-  val behavior = Behaviors.receiveMessage[Command] { command =>
-    command.replyTo ! Done
+  val behavior = Behaviors.receiveMessage[LargeMessageResponse] { command =>
+    command.replyTo ! oneMegaByteString
     Behaviors.same
   }
 }
